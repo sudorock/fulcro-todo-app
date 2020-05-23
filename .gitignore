@@ -3,3 +3,4 @@
 .shadow-cljs/
 fulcro-todo-app.iml
 node_modules/
+resources/

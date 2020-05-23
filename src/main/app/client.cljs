@@ -11,21 +11,43 @@
 (defonce app (app/fulcro-app))
 
 (defmutation delete-todo [{:keys [id list-id]}]
-  (action
-    [{:keys [state]}]
+  (action [{:keys [state]}]
     (swap! state update :todo-item/id dissoc id)
     (swap! state merge/remove-ident* [:todo-item/id id] [:todo-list/id list-id :todo-list/items])))
+
+(defmutation edit-todo [{:keys [id new-value]}]
+  (action [{:keys [state]}]
+    (swap! state assoc-in [:todo-item/id id :todo-item/value] new-value)))
 
 (defsc TodoItem [this {:todo-item/keys [id value list-id]}]
   {:query          [:todo-item/id
                     :todo-item/value
                     :todo-item/list-id]
    :ident          :todo-item/id
-   :initLocalState (fn [this _]
-                     {:on-click (fn [e id list-id]
-                                  (comp/transact! this [(delete-todo {:id id :list-id list-id})]))})}
-  (let [{:keys [on-click]} (comp/get-state this)]
-    (li {} value (button {:onClick #(on-click % id list-id)} "Delete"))))
+   :initLocalState (fn [this {:todo-item/keys [id value list-id]}]
+                     {:editing?       false
+                      :edit-value     value
+                      :on-edit        #(comp/set-state! this (assoc (comp/get-state this) :editing? true))
+                      :on-edit-change (fn [e]
+                                        (comp/set-state! this (assoc (comp/get-state this) :edit-value (.. e -target -value))))
+                      :on-edit-ok     (fn [_]
+                                        (comp/transact! this [(edit-todo {:id id :new-value (comp/get-state this :edit-value)})])
+                                        (comp/set-state! this (assoc (comp/get-state this) :editing? false)))
+                      :on-edit-cancel (fn [_]
+                                        (comp/set-state! this (assoc (comp/get-state this) :editing? false
+                                                                                           :edit-value value)))
+                      :on-delete      #(comp/transact! this [(delete-todo {:id id :list-id list-id})])})}
+  (let [{:keys [on-delete on-edit editing? edit-value on-edit-change on-edit-ok on-edit-cancel]} (comp/get-state this)]
+    (if editing?
+      (li (input {:type     "text"
+                  :value    edit-value
+                  :onChange on-edit-change})
+          (button {:onClick on-edit-ok} "OK")
+          (button {:onClick on-edit-cancel} "Cancel"))
+      (li {}
+          value
+          (button {:onClick on-edit} "Edit")
+          (button {:onClick on-delete} "Delete")))))
 
 (def ui-todo-item (comp/factory TodoItem {:keyfn :todo-item/id}))
 
@@ -60,20 +82,20 @@
    :initial-state  {:todo-input/id    :param/id
                     :todo-input/value ""
                     :todo-input/list  {:id :param/list-id}}
-   :initLocalState (fn [this _]
-                     {:on-change (fn [e]
-                                   (m/set-value! this :todo-input/value (.. e -target -value)))
-                      :on-click  (fn [e list-id value]
-                                   (.preventDefault e)
-                                   (comp/transact! this [(add-todo {:list-id list-id
-                                                                    :value   value})])
-                                   (m/set-value! this :todo-input/value ""))})}
-  (let [{:keys [on-change on-click]} (comp/get-state this)
-        list-id (:todo-list/id list)]
+   :initLocalState (fn [this {:todo-input/keys [value list]}]
+                     {:input-value value
+                      :on-change (fn [e]
+                                   (comp/set-state! this (assoc (comp/get-state this) :input-value (.. e -target -value))))
+                      :on-add  (fn [e]
+                                 (.preventDefault e)
+                                 (comp/transact! this [(add-todo {:list-id (:todo-list/id list)
+                                                                  :value   (comp/get-state this :input-value)})])
+                                 (comp/set-state! this (assoc (comp/get-state this) :input-value "")))})}
+  (let [{:keys [on-change on-add input-value]} (comp/get-state this)]
     (div (input {:type     "text"
-                 :value    value
+                 :value    input-value
                  :onChange on-change})
-         (button {:onClick #(on-click % list-id value)} "ADD"))))
+         (button {:onClick on-add} "ADD"))))
 
 (def ui-todo-input (comp/factory TodoInput))
 
